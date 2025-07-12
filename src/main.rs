@@ -9,18 +9,20 @@ use matrix_sdk::{
 
 use whoami;
 
-use std::fs::File;
-use std::path::Path;
-
 use colored::Colorize;
 #[cfg(windows)]
 use colored::control;
 #[cfg(windows)]
 use crossterm;
-
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::fs::File;
+use std::io;
+use std::path::Path;
+#[derive(Serialize, Deserialize, Debug)]
 struct MatrixLoginInfo {
-    username: &'static str,
-    password: &'static str,
+    username: String,
+    password: String,
 }
 
 macro_rules! logln {
@@ -40,16 +42,17 @@ async fn main() -> anyhow::Result<()> {
     enable_ansi_support();
 
     let login_info = get_user_login_info();
-    let user_id = user_id!("@bongopoyo:matrix.org");
+
+    logln!("Building client with https://matrix.org");
     let client = Client::builder()
-        .server_name(user_id.server_name())
+        .homeserver_url("https://matrix.org")
         .build()
         .await?;
 
     // First we need to log in.
     client
         .matrix_auth()
-        .login_username(user_id, login_info.password)
+        .login_username(login_info.username.as_str(), login_info.password.as_str())
         .send()
         .await?;
 
@@ -66,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
 
 fn get_user_login_info() -> MatrixLoginInfo {
     let mut matrix_login_info = MatrixLoginInfo {
-        username: "",
-        password: "",
+        username: "".to_string(),
+        password: "".to_string(),
     };
     let username = whoami::username();
     logln!("Current user: {}", username);
@@ -77,14 +80,46 @@ fn get_user_login_info() -> MatrixLoginInfo {
         Ok(entry) => {
             logln!("Entry exists: {:?}", entry);
             match entry.get_password() {
-                Ok(password) => {
-                    logln!("Password: {}", password);
+                Ok(data) => {
+                    logln!("Found info: {}", data);
                 }
+
                 Err(e) => {
                     logln!("Error getting password: {}", e);
+
+                    logln!("Enter username: ");
+                    let mut username: String = String::new();
+                    io::stdin()
+                        .read_line(&mut username)
+                        .expect("failed to readline");
+
+                    logln!("Enter password: ");
+                    let mut password: String = String::new();
+                    io::stdin()
+                        .read_line(&mut password)
+                        .expect("failed to readline");
+
+                    // Remove trailing newlines
+                    let username = username.trim().to_string();
+                    let password = password.trim().to_string();
+
+                    matrix_login_info = MatrixLoginInfo {
+                        username: username,
+                        password: password,
+                    };
+
+                    let serialized =
+                        serde_json::to_string(&matrix_login_info).expect("failed to serialize");
+
+                    if let Err(err) = entry.set_password(&serialized) {
+                        logln!("Failed to store credentials: {}", err);
+                    } else {
+                        logln!("Login info saved to keyring.");
+                    }
                 }
             }
         }
+
         Err(e) => {
             logln!("Error getting entry: {}", e);
         }
