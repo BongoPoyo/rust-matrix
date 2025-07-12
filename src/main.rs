@@ -41,20 +41,25 @@ static SERVICE_NAME: &str = "rust-matrix";
 async fn main() -> anyhow::Result<()> {
     enable_ansi_support();
 
-    let login_info = get_user_login_info();
-
     logln!("Building client with https://matrix.org");
     let client = Client::builder()
         .homeserver_url("https://matrix.org")
         .build()
         .await?;
 
+    if let Some(session) = client.session() {
+        client.restore_session(session).await?;
+        logln!("Logged in with stored session!");
+    } else {
+        let login_info = get_user_login_info();
+        client
+            .matrix_auth()
+            .login_username(login_info.username.as_str(), login_info.password.as_str())
+            .send()
+            .await?;
+        // fallback to login with stored creds from keyring
+    }
     // First we need to log in.
-    client
-        .matrix_auth()
-        .login_username(login_info.username.as_str(), login_info.password.as_str())
-        .send()
-        .await?;
 
     client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
         logln!("Received a message {:#?}", ev);
