@@ -24,8 +24,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::fs::File;
 use std::io::{self, Write};
-use std::path::Path;
-use whoami;
+use std::path::{Path, PathBuf};
 
 macro_rules! logln {
     ($($arg:tt)*) => {
@@ -55,11 +54,10 @@ struct Cli {
 async fn main() -> anyhow::Result<()> {
     enable_ansi_support();
     let cli = Cli::parse();
+    logln!("Parsed CLI: {:?}", &cli);
     logln!("Building client with https://matrix.org");
 
     let client = configure_client(cli).await?;
-    log_in_or_restore_session(&client, session_path);
-    // First we need to log in.
 
     client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
         logln!("Received a message {:#?}", ev);
@@ -110,9 +108,11 @@ async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Resu
     let session_path = session_path.join("session.json");
 
     if let Ok(serialized) = std::fs::read_to_string(&session_path) {
+        logln!("Found old session...");
         let session: MatrixSession = serde_json::from_str(&serialized)?;
         client.restore_session(session).await?;
     } else {
+        logln!("Creating new session...");
         login_with_password(client).await?;
 
         // Immediately save the session to disk.
@@ -123,7 +123,7 @@ async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Resu
             let serialized = serde_json::to_string(&session)?;
             std::fs::write(session_path, serialized)?;
 
-            println!("saved session");
+            logln!("saved session");
         }
     }
 
@@ -133,7 +133,7 @@ async fn log_in_or_restore_session(client: &Client, session_path: &Path) -> Resu
 /// Asks the user of a username and password, and try to login using the matrix
 /// auth with those.
 async fn login_with_password(client: &Client) -> Result<()> {
-    println!("Logging in with username and password…");
+    logln!("Logging in with username and password…");
 
     loop {
         print!("\nUsername: ");
@@ -152,12 +152,12 @@ async fn login_with_password(client: &Client) -> Result<()> {
             .await
         {
             Ok(_) => {
-                println!("Logged in as {username}");
+                logln!("Logged in as {username}");
                 break;
             }
             Err(error) => {
-                println!("Error logging in: {error}");
-                println!("Please try again\n");
+                logln!("Error logging in: {error}");
+                logln!("Please try again\n");
             }
         }
     }
@@ -166,7 +166,7 @@ async fn login_with_password(client: &Client) -> Result<()> {
 }
 #[cfg(windows)]
 fn enable_ansi_support() {
-    println!("[Main] Detected Windows.... Enabling ANSI SUPPORT for colors...");
+    logln!("[Main] Detected Windows.... Enabling ANSI SUPPORT for colors...");
     control::set_virtual_terminal(true).unwrap();
     // crossterm::terminal::enable_virtual_terminal_processing(std::io::stdout()).unwrap();
 }
